@@ -1,9 +1,3 @@
-######################################################################
-#Neural Style Transformation Based on VGG_BN, Resnet-20 and Resnet-56#
-#																																		 #
-#						Zhanlue Yang, Xiaoxiang Zhang, Shuizhou Wang						 #
-######################################################################
-
 0. Programming Language and Libs:
 *This project is written in Python2, please verify your version of python (especially when using jupyter notebook)
 *Libs used: cPickle, Tensorflow, numpy, PIL, scipy
