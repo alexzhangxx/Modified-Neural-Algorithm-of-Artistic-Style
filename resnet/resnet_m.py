@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-
+# Modified Resnet Layers, Using tf.constant to replace all tf.Variables
 def softmax_layer(inpt, weights, shape):
     fc_w = tf.constant(weights[0])
     fc_b = tf.constant(weights[1])

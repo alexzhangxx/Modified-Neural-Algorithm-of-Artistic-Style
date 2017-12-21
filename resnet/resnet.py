@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-
+# Building Conv Layer, Residual Blocks and FC Layers for Resnet
 def weight_variable(shape, name=None):
     initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial, name=name)

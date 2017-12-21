@@ -1,4 +1,4 @@
-import models
+import models_train
 import cPickle
 import numpy as np
 import tensorflow as tf

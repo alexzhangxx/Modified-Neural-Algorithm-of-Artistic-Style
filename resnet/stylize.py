@@ -8,10 +8,6 @@ from models_m import resnet_m
 from models import resnet
 from PIL import Image
 
-directory = './cifar_10_progress/'
-CONTENT_LAYERS = ('conv1', 'conv2_x')
-STYLE_LAYERS = ('conv1', 'conv2_x', 'conv2', 'conv3', 'conv3_x')
-
 try:
     reduce
 except NameError:
@@ -22,46 +18,43 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
         content_weight, content_weight_blend, style_weight, style_layer_weight_exp, style_blend_weights, tv_weight,
         learning_rate, beta1, beta2, epsilon, pooling,
         print_iterations=None, checkpoint_iterations=None):
-    """
-    Stylize images.
 
-    This function yields tuples (iteration, image); `iteration` is None
-    if this is the final image (the last iteration).  Other tuples are yielded
-    every `checkpoint_iterations` iterations.
+    # Set parameters for training
+    lr = 100
+    content_coeff = 1
+    style_coeff = 1000000
+    tv_coeff = 0.000001
 
-    :rtype: iterator[tuple[int|None,image]]
-    """
+    directory = '../resnet/cifar_10_progress/'
+    CONTENT_LAYERS = ['conv3','conv3_x']
+    STYLE_LAYERS = ['conv1','conv2_x','conv2','conv3_x','conv3','conv4','conv4_x']
+    
+    content_layers_weights = {}
+    for layer in CONTENT_LAYERS:
+        content_layers_weights[layer] = 1
+    
+    style_layers_weights = {}
+    for style_layer in STYLE_LAYERS:
+        style_layers_weights[style_layer] = 1
+   
+
     shape = (1,) + content.shape
     style_shapes = [(1,) + style.shape for style in styles]
     content_features = {}
     style_features = [{} for _ in styles]
 
-    layer_weight = 1.0
-    style_layers_weights = {}
-    for style_layer in STYLE_LAYERS:
-        style_layers_weights[style_layer] = layer_weight
-        layer_weight *= style_layer_weight_exp
-
-    # normalize style layer weights
-    layer_weights_sum = 0
-    for style_layer in STYLE_LAYERS:
-        layer_weights_sum += style_layers_weights[style_layer]
-    for style_layer in STYLE_LAYERS:
-        style_layers_weights[style_layer] /= layer_weights_sum
-
     # compute content features in feedforward mode
     g = tf.Graph()
     with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
+
         image = tf.placeholder('float', shape=shape)
         
-        net,layer_list = resnet(image, 20)
+        net,_ = resnet(image, 20)
 
         saver = tf.train.Saver()
         saver.restore(sess, directory)
         
         pre_content = np.array([content])
-        for k in range(len(layer_list)):
-          layer_list[k] = sess.run(layer_list[k], feed_dict={image: pre_content})
 
         for layer in CONTENT_LAYERS:
             content_features[layer] = net[layer].eval(feed_dict={image: pre_content})
@@ -72,18 +65,23 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
         with g.as_default(), g.device('/cpu:0'), tf.Session() as sess:
             image = tf.placeholder('float', shape=style_shapes[i])
             
-            net,_ = resnet(image, 20)
+            net,layer_list = resnet(image, 20)
             
             saver = tf.train.Saver()
             saver.restore(sess, directory)
             
             pre_style = np.array([styles[i]])
+            
+            for k in range(len(layer_list)):
+              layer_list[k] = sess.run(layer_list[k], feed_dict={image: pre_style})
+            
             for layer in STYLE_LAYERS:
+                
                 features = net[layer].eval(feed_dict={image: pre_style})
                 features = np.reshape(features, (-1, features.shape[3]))
                 gram = np.matmul(features.T, features) / features.size
                 style_features[i][layer] = gram
-
+            
     initial_content_noise_coeff = 1.0 - initial_noiseblend
 
     # make stylized image using backpropogation
@@ -96,15 +94,12 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
             initial = initial.astype('float32')
             noise = np.random.normal(size=shape, scale=np.std(content) * 0.1)
             initial = (initial) * initial_content_noise_coeff + (tf.random_normal(shape) * 0.256) * (1.0 - initial_content_noise_coeff)
-        image = tf.Variable(initial)
+        #image = tf.Variable(initial)
+        image = tf.Variable(pre_content.astype('float32'))
 
         net = resnet_m(image, 20, layer_list)
         
         # content loss
-        content_layers_weights = {}
-        content_layers_weights['conv1'] = content_weight_blend
-        content_layers_weights['conv2_x'] = 1.0 - content_weight_blend
-
         content_loss = 0
         content_losses = []
         for content_layer in CONTENT_LAYERS:
@@ -112,34 +107,48 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
                     net[content_layer] - content_features[content_layer]) /
                     content_features[content_layer].size))
         content_loss += reduce(tf.add, content_losses)
+        content_loss *= content_coeff
 
         # style loss
         style_loss = 0
-        for i in range(len(styles)):
-            style_losses = []
-            for style_layer in STYLE_LAYERS:
-                layer = net[style_layer]
-                _, height, width, number = map(lambda i: i.value, layer.get_shape())
-                size = height * width * number
-                feats = tf.reshape(layer, (-1, number))
-                gram = tf.matmul(tf.transpose(feats), feats) / size
-                style_gram = style_features[i][style_layer]
-                style_losses.append(style_layers_weights[style_layer] * 2 * tf.nn.l2_loss(gram - style_gram) / style_gram.size)
-            style_loss += style_weight * style_blend_weights[i] * reduce(tf.add, style_losses)
+        style_losses = []
+        for style_layer in STYLE_LAYERS:
+            
+            # TensorBoard
+            output = net[style_layer]
+            output_shape = int(output.get_shape()[3])
+            output_split = tf.split(output,num_or_size_splits=output_shape, axis=3)
+
+            feature_list = []
+            for j in range(output_shape):
+                feature_list.append(output_split[j])
+            output_show = tf.concat(feature_list, axis=0)
+            tf.summary.image(str(layer), output_show, 1000)
+            
+            layer = net[style_layer]
+            _, height, width, number = map(lambda i: i.value, layer.get_shape())
+            size = height * width * number
+            feats = tf.reshape(layer, (-1, number))
+            gram = tf.matmul(tf.transpose(feats), feats) / size
+            style_gram = style_features[0][style_layer]
+            style_loss = style_layers_weights[style_layer] * 2 * tf.nn.l2_loss(gram - style_gram) / style_gram.size
+        style_loss *= style_coeff
 
         # total variation denoising
         tv_y_size = _tensor_size(image[:,1:,:,:])
         tv_x_size = _tensor_size(image[:,:,1:,:])
+        
         tv_loss = tv_weight * 2 * (
                 (tf.nn.l2_loss(image[:,1:,:,:] - image[:,:shape[1]-1,:,:]) /
                     tv_y_size) +
                 (tf.nn.l2_loss(image[:,:,1:,:] - image[:,:,:shape[2]-1,:]) /
                     tv_x_size))
+        tv_loss *= tv_coeff
         # overall loss
         loss = content_loss + style_loss + tv_loss
 
         # optimizer setup
-        train_step = tf.train.AdamOptimizer(learning_rate, beta1, beta2, epsilon).minimize(loss)
+        train_step = tf.train.AdamOptimizer(lr, beta1, beta2, epsilon).minimize(loss)
 
         def print_progress():
             stderr.write('  content loss: %g\n' % content_loss.eval())
@@ -147,6 +156,10 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
             stderr.write('       tv loss: %g\n' % tv_loss.eval())
             stderr.write('    total loss: %g\n' % loss.eval())
 
+        
+        merge_summary_op = tf.summary.merge_all()
+        summary_writer = tf.summary.FileWriter('./style_x/')
+        
         # optimization
         best_loss = float('inf')
         best = None
@@ -158,9 +171,8 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
                 print_progress()
             for i in range(iterations):
                 stderr.write('Iteration %4d/%4d\n' % (i + 1, iterations))
-                #train_step.run()
-                _, out_loss = sess.run([train_step, loss])
-                print out_loss
+                _ = sess.run([train_step])
+                print_progress()
                 
                 last_step = (i == iterations - 1)
                 if last_step or (print_iterations and i % print_iterations == 0):
@@ -173,7 +185,7 @@ def stylize(initial, initial_noiseblend, content, styles, preserve_colors, itera
                         best = image.eval()
 
                     img_out = best.reshape(shape[1:])
-
+                   
                     if preserve_colors and preserve_colors == True:
                         original_image = np.clip(content, 0, 255)
                         styled_image = np.clip(img_out, 0, 255)

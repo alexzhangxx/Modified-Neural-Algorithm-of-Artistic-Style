@@ -1,4 +1,4 @@
-import models
+import models_train
 import cPickle
 import numpy as np
 import tensorflow as tf
@@ -120,12 +120,9 @@ def main():
 
 # ResNet Models
     net,saver = models.resnet(X, 20, cifar)
-# net = models.resnet(X, 32)
-# net = models.resnet(X, 44)
-# net = models.resnet(X, 56)
 
     cross_entropy = -tf.reduce_sum(Y*tf.log(net))
-#opt = tf.train.RMSPropOptimizer(learning_rate)
+    
     opt = tf.train.AdamOptimizer(learning_rate)
     train_op = opt.minimize(cross_entropy)
 

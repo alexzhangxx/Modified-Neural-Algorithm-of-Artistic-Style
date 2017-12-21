@@ -31,14 +31,14 @@ def build_parser():
     parser = ArgumentParser()
     parser.add_argument('--content',
             dest='content', help='content image',
-            metavar='CONTENT', required=True)
+            metavar='CONTENT', required=False)
     parser.add_argument('--styles',
             dest='styles',
             nargs='+', help='one or more style images',
-            metavar='STYLE', required=True)
+            metavar='STYLE', required=False)
     parser.add_argument('--output',
             dest='output', help='output path',
-            metavar='OUTPUT', required=True)
+            metavar='OUTPUT', required=False)
     parser.add_argument('--iterations', type=int,
             dest='iterations', help='iterations (default %(default)s)',
             metavar='ITERATIONS', default=ITERATIONS)
@@ -105,6 +105,10 @@ def build_parser():
 def main():
     parser = build_parser()
     options = parser.parse_args()
+    
+    options.content = '../resnet56/dog.jpg'                                               
+    options.styles = ['../resnet56/style1.jpg']                                           
+    options.output = './output.jpg'    
 
     content_image = imread(options.content)
     style_images = [imread(style) for style in options.styles]
